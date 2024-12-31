@@ -32,7 +32,7 @@ async def group_kick(bot: Bot, group_id: int):
     max_member_count = group_info['max_member_count']
     member_count = group_info['member_count']
 
-    if (await_ban := max_member_count - member_count) >= plugin_config.examine_headcount:
+    if (await_ban := max_member_count - member_count) >= plugin_config.detect_headcount:
         group_user_list = [int(i["user_id"]) for i in await bot.get_group_member_list(group_id= group_id)]
         user_last_sent_time = []
         
@@ -42,20 +42,19 @@ async def group_kick(bot: Bot, group_id: int):
 
         user_last_sent_time.sort(key=lambda x: x[1])
         await_user_ban_list = [i[0] for i in user_last_sent_time]
-        print(await_user_ban_list)
 
         for i in range(await_ban):
             await bot.set_group_kick(group_id= group_id, user_id= await_user_ban_list[0], reject_add_request= False)
             await_user_ban_list.remove(await_user_ban_list[0])
     
     else:
-        return f"需要群人数到达{max_member_count - plugin_config.examine_headcount}"
+        return f"需要群人数到达{max_member_count - plugin_config.detect_headcount}"
 
 
 @group_ban.handle()
 async def _(bot: Bot, event: GroupIncreaseNoticeEvent):
 
-    if plugin_config.examine_is_automatic:
+    if plugin_config.detect_is_automatic:
         await group_ban.send("群员增加，正在执行群组踢人操作")
         msg = await group_kick(bot, event.group_id)
 
