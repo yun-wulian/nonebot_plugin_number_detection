@@ -32,23 +32,32 @@ async def group_kick(bot: Bot, group_id: int):
     max_member_count = group_info['max_member_count']
     member_count = group_info['member_count']
 
-    if (await_ban := max_member_count - member_count) >= plugin_config.detect_headcount:
-        group_user_list = [int(i["user_id"]) for i in await bot.get_group_member_list(group_id= group_id)]
-        user_last_sent_time = []
+    remaining = max_member_count - member_count
+    #触发条件改为剩余空位小于设定值时触发
+    if remaining < plugin_config.detect_headcount:
+        #计算实际需要踢出的人数
+        need_kick = plugin_config.detect_headcount - remaining
         
-        for i in group_user_list:
-            last_sent_time = await bot.get_group_member_info(group_id= group_id, user_id= i)
-            user_last_sent_time.append([i, last_sent_time["last_sent_time"]])
-
+        member_list = await bot.get_group_member_list(group_id=group_id)
+        user_last_sent_time = [
+            (m['user_id'], m['last_sent_time'])
+            for m in member_list
+            if m['role'] == 'member'
+        ]
+        
+        # 按最后发言时间排序（从未发言的优先）
         user_last_sent_time.sort(key=lambda x: x[1])
-        await_user_ban_list = [i[0] for i in user_last_sent_time]
-
-        for i in range(await_ban):
-            await bot.set_group_kick(group_id= group_id, user_id= await_user_ban_list[0], reject_add_request= False)
-            await_user_ban_list.remove(await_user_ban_list[0])
+        
+        # 踢出需要数量的成员
+        for user_id, _ in user_last_sent_time[:need_kick]:
+            await bot.set_group_kick(
+                group_id=group_id,
+                user_id=user_id,
+                reject_add_request=False
+            )
     
     else:
-        return f"需要群人数到达{max_member_count - plugin_config.detect_headcount}"
+        return f"当前剩余空位 {remaining} 已满足要求"
 
 
 @group_ban.handle()
