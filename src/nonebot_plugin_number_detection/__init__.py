@@ -1,4 +1,4 @@
-from nonebot import on_command, on_notice
+from nonebot import on_command, on_notice,logger
 from .config import plugin_config
 
 from nonebot.adapters.onebot.v11 import (
@@ -12,37 +12,92 @@ from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
 from .config import Config
 
+import json
+from pathlib import Path
+from typing import Dict
+from nonebot import require
+require("nonebot_plugin_alconna")
+from nonebot_plugin_alconna import Args, Alconna, on_alconna, Match
+
 __plugin_meta__ = PluginMetadata(
     name="群成员检测 dev版",
     description="检测群人数，当群剩余的空位人数达到设定值，则自动踢出群员",
-    usage="发送 /group_ban即可手动触发检测（自动检测默认关闭）",
+    usage="发送 /踢人即可手动触发检测（自动检测默认关闭）",
     config=Config,
     type="application",
     homepage="https://github.com/zhongwen-4/nonebot_plugin_number_detection",
     supported_adapters= {"~onebot.v11"}
 )
 
-
+group_settings_path = Path(__file__).parent / "group_settings.json"
 group_ban = on_notice(block= False)
-group_ban_cmd = on_command("group_ban", aliases={"群成员检测"}, permission= SUPERUSER)
+group_ban_cmd = on_command("踢人", aliases={"群成员检测"}, permission= SUPERUSER)
+set_remain = on_alconna(Alconna("/设置空位", Args["amount", int]), permission= SUPERUSER)
+clear_settings = on_command("清空空位", aliases={"清空设置"}, permission= SUPERUSER)
+clear_settings_on_group = on_command("删除空位", aliases={"删除空位"}, permission= SUPERUSER)
+show_settings_on_group = on_command("查看空位", aliases={"查看空位"}, permission= SUPERUSER)
+
+def load_group_settings() -> Dict[int, int]:
+    try:
+        with open(group_settings_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def save_group_settings(settings: Dict[int, int]):
+    with open(group_settings_path, "w", encoding="utf-8") as f:
+        json.dump(settings, f, ensure_ascii=False, indent=4)
+
+def clear_group_settings():
+    save_group_settings({})
+
+@clear_settings.handle()
+async def _(bot: Bot, event: GroupMessageEvent):
+    clear_group_settings()
+    await clear_settings.finish("已清空群聊空位信息")
+
+@clear_settings_on_group.handle()
+async def _(bot: Bot, event: GroupMessageEvent):
+    settings = load_group_settings()
+    del settings[int(event.group_id)]
+    save_group_settings(settings)
+    await clear_settings_on_group.finish(f"群 {event.group_id} 的预留空位设置已清空")
+
+@show_settings_on_group.handle()
+async def _(bot: Bot, event: GroupMessageEvent):
+    settings = load_group_settings()
+    logger.info(settings)
+    amount = settings[int(event.group_id)]
+    await show_settings_on_group.finish(f"群 {event.group_id} 的预留空位已设置为 {amount}")
+
+@set_remain.handle()
+async def handle_set_remain(event: GroupMessageEvent, amount: Match[int]):
+    settings = load_group_settings()
+    settings[int(event.group_id)] = amount.result
+    logger.info(settings)
+    save_group_settings(settings)
+    await set_remain.finish(f"群 {event.group_id} 的预留空位已设置为 {amount.result}")
 
 
 async def group_kick(bot: Bot, group_id: int):
-    group_info = await bot.get_group_info(group_id= group_id)
+    group_settings = load_group_settings()
+    # 优先使用群专用配置，不存在则使用全局配置
+    threshold = group_settings.get(str(group_id), plugin_config.detect_headcount)
+    
+    group_info = await bot.get_group_info(group_id=group_id)
     max_member_count = group_info['max_member_count']
     member_count = group_info['member_count']
 
     remaining = max_member_count - member_count
-    #触发条件改为剩余空位小于设定值时触发
-    if remaining < plugin_config.detect_headcount:
-        #计算实际需要踢出的人数
-        need_kick = plugin_config.detect_headcount - remaining
+    if remaining < threshold:
+        need_kick = threshold - remaining
         
+        # 修正3：一次性获取全部成员信息
         member_list = await bot.get_group_member_list(group_id=group_id)
         user_last_sent_time = [
             (m['user_id'], m['last_sent_time'])
             for m in member_list
-            if m['role'] == 'member'
+            if m['role'] == 'member'  # 过滤普通成员
         ]
         
         # 按最后发言时间排序（从未发言的优先）
