@@ -37,14 +37,14 @@ clear_settings = on_command("清空空位", aliases={"清空设置"}, permission
 clear_settings_on_group = on_command("删除空位", aliases={"删除空位"}, permission= SUPERUSER)
 show_settings_on_group = on_command("查看空位", aliases={"查看空位"}, permission= SUPERUSER)
 
-def load_group_settings() -> Dict[int, int]:
+def load_group_settings() -> Dict[str, int]:
     try:
         with open(group_settings_path, "r", encoding="utf-8") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
-def save_group_settings(settings: Dict[int, int]):
+def save_group_settings(settings: Dict[str, int]):
     with open(group_settings_path, "w", encoding="utf-8") as f:
         json.dump(settings, f, ensure_ascii=False, indent=4)
 
@@ -59,7 +59,7 @@ async def _(bot: Bot, event: GroupMessageEvent):
 @clear_settings_on_group.handle()
 async def _(bot: Bot, event: GroupMessageEvent):
     settings = load_group_settings()
-    del settings[int(event.group_id)]
+    del settings[str(event.group_id)]
     save_group_settings(settings)
     await clear_settings_on_group.finish(f"群 {event.group_id} 的预留空位设置已清空")
 
@@ -67,13 +67,13 @@ async def _(bot: Bot, event: GroupMessageEvent):
 async def _(bot: Bot, event: GroupMessageEvent):
     settings = load_group_settings()
     logger.info(settings)
-    amount = settings[int(event.group_id)]
+    amount = settings[str(event.group_id)]
     await show_settings_on_group.finish(f"群 {event.group_id} 的预留空位已设置为 {amount}")
 
 @set_remain.handle()
 async def handle_set_remain(event: GroupMessageEvent, amount: Match[int]):
     settings = load_group_settings()
-    settings[int(event.group_id)] = amount.result
+    settings[str(event.group_id)] = amount.result
     logger.info(settings)
     save_group_settings(settings)
     await set_remain.finish(f"群 {event.group_id} 的预留空位已设置为 {amount.result}")
